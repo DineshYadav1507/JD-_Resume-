@@ -98,15 +98,22 @@ function normalizeOutput(raw: any, profile: any) {
   const sourceExperiences = Array.isArray(profile.experiences) ? profile.experiences : [];
   const experience = Array.isArray(raw?.experience)
     ? raw.experience.map((x: any, i: number) => {
-        const source = sourceExperiences[i] || {};
+        const source =
+          sourceExperiences.find(
+            (s: any) =>
+              String(s?.company || "").toLowerCase() === String(x?.company || "").toLowerCase() &&
+              String(s?.title || "").toLowerCase() === String(x?.title || "").toLowerCase(),
+          ) ||
+          sourceExperiences[i] ||
+          {};
         return {
-          company: x?.company || source.company || "",
-          title: x?.title || source.title || "",
-          location: x?.location || source.location || "",
-          startDate: x?.startDate || source.startDate || "",
-          endDate: x?.endDate || source.endDate || "",
-          current: Boolean(x?.current ?? source.current),
-          dates: x?.dates || source.dates || "",
+          company: source.company || "",
+          title: source.title || "",
+          location: source.location || "",
+          startDate: source.startDate || "",
+          endDate: source.endDate || "",
+          current: Boolean(source.current),
+          dates: source.dates || "",
           bullets: cleanList(x?.bullets, 20),
         };
       })
