@@ -3,7 +3,7 @@ import { researchJobs } from "./search";
 const profileText = (p: any) =>
   JSON.stringify(
     {
-      name: p.user.name,
+      name: p.user?.name || p.name,
       phone: p.phone,
       location: p.location,
       linkedin: p.linkedin,
@@ -24,10 +24,10 @@ const analysisSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    title: { type: ["string", "null"] },
-    company: { type: ["string", "null"] },
-    location: { type: ["string", "null"] },
-    seniority: { type: ["string", "null"] },
+    title: { type: "string" },
+    company: { type: "string" },
+    location: { type: "string" },
+    seniority: { type: "string" },
     keywords: { type: "array", items: { type: "string" } },
     atsSkills: { type: "array", items: { type: "string" } },
     responsibilities: { type: "array", items: { type: "string" } },
@@ -59,10 +59,14 @@ const outputSchema = {
         properties: {
           company: { type: "string" },
           title: { type: "string" },
+          location: { type: "string" },
+          startDate: { type: "string" },
+          endDate: { type: "string" },
+          current: { type: "boolean" },
           dates: { type: "string" },
           bullets: { type: "array", items: { type: "string" } },
         },
-        required: ["company", "title", "dates", "bullets"],
+        required: ["company", "title", "location", "startDate", "endDate", "current", "dates", "bullets"],
       },
     },
     projects: {
@@ -82,24 +86,57 @@ const outputSchema = {
     education: { type: "array", items: { type: "string" } },
     coverLetter: { type: "string" },
   },
-  required: [
-    "summary",
-    "skills",
-    "experience",
-    "projects",
-    "certifications",
-    "education",
-    "coverLetter",
-  ],
+  required: ["summary", "skills", "experience", "projects", "certifications", "education", "coverLetter"],
 };
+
+function cleanList(value: any, max = 60): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()))].slice(0, max);
+}
+
+function normalizeOutput(raw: any, profile: any) {
+  const sourceExperiences = Array.isArray(profile.experiences) ? profile.experiences : [];
+  const experience = Array.isArray(raw?.experience)
+    ? raw.experience.map((x: any, i: number) => {
+        const source = sourceExperiences[i] || {};
+        return {
+          company: x?.company || source.company || "",
+          title: x?.title || source.title || "",
+          location: x?.location || source.location || "",
+          startDate: x?.startDate || source.startDate || "",
+          endDate: x?.endDate || source.endDate || "",
+          current: Boolean(x?.current ?? source.current),
+          dates: x?.dates || source.dates || "",
+          bullets: cleanList(x?.bullets, 20),
+        };
+      })
+    : sourceExperiences.map((x: any) => ({
+        company: x.company || "",
+        title: x.title || "",
+        location: x.location || "",
+        startDate: x.startDate || "",
+        endDate: x.endDate || "",
+        current: Boolean(x.current),
+        dates: x.dates || "",
+        bullets: cleanList(x.bullets, 20),
+      }));
+
+  return {
+    summary: String(raw?.summary || profile.summary || "").trim(),
+    skills: cleanList(raw?.skills, 100),
+    experience,
+    projects: Array.isArray(raw?.projects) ? raw.projects : [],
+    certifications: cleanList(raw?.certifications, 50),
+    education: cleanList(raw?.education, 20),
+    coverLetter: String(raw?.coverLetter || "").trim(),
+  };
+}
 
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 
   async function structured(messages: any[], schema: any) {
-    const base = (
-      process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-    ).replace(/\/$/, "");
+    const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
     const res = await fetch(base + "/api/chat", {
       method: "POST",
@@ -109,23 +146,18 @@ export async function tailor(profile: any, jd: string) {
         messages,
         stream: false,
         format: schema,
-        options: { temperature: 0.2 },
+        options: { temperature: 0.2, num_ctx: 8192 },
       }),
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(
-        `Ollama request failed (${res.status})${body ? `: ${body.slice(0, 500)}` : ""}`,
-      );
+      throw new Error(`Ollama request failed (${res.status})${body ? `: ${body.slice(0, 500)}` : ""}`);
     }
 
     const data: any = await res.json();
     const content = data.message?.content;
-
-    if (!content) {
-      throw new Error("Ollama returned an empty response.");
-    }
+    if (!content) throw new Error("Ollama returned an empty response.");
 
     try {
       return JSON.parse(content);
@@ -139,37 +171,34 @@ export async function tailor(profile: any, jd: string) {
       {
         role: "system",
         content:
-          "Analyze the JD for ATS keywords, responsibilities and terminology. Aggressively identify what should shape the resume. Never invent immutable candidate facts.",
+          "Analyze the job description. Extract the job title, company, location, seniority, ATS keywords, skills, responsibilities, and unsupported/missing requirements. Return concise structured data. Do not invent candidate facts.",
       },
       {
         role: "user",
-        content:
-          "MASTER PROFILE:\n" +
-          profileText(profile) +
-          "\n\nJOB DESCRIPTION:\n" +
-          jd,
+        content: "MASTER PROFILE:\n" + profileText(profile) + "\n\nJOB DESCRIPTION:\n" + jd,
       },
     ],
     analysisSchema,
   );
 
   let research: any = { source: "disabled", results: [] };
-
   try {
     research = await researchJobs(
-      [a.title, a.company, ...(a.atsSkills || []).slice(0, 5)]
-        .filter(Boolean)
-        .join(" "),
+      [a.title, a.company, ...(a.atsSkills || []).slice(0, 5)].filter(Boolean).join(" "),
       a.location || profile.location,
     );
-  } catch {}
+  } catch {
+    research = { source: "unavailable", results: [] };
+  }
+
+  const researchText = JSON.stringify(research.results || []).slice(0, 8000);
 
   const tailored = await structured(
     [
       {
         role: "system",
         content:
-          "Create a highly JD-tailored ATS-friendly US resume and cover letter. Rewrite and reorder supported experience aggressively, use JD terminology and transferable skills, emphasize relevant projects, and maximize legitimate keyword coverage. The master profile is the factual source of truth. Never fabricate employers, dates, degrees, certifications, projects, metrics, technologies, responsibilities, or achievements. Unsupported JD requirements must not be presented as candidate experience.",
+          "Create a highly JD-tailored ATS-friendly US resume and hiring-manager cover letter. Reorder and rewrite supported experience aggressively. Use the job description's terminology where it truthfully maps to the master profile. Preserve candidate facts: never invent employers, dates, degrees, certifications, projects, metrics, technologies, responsibilities, achievements, or years of experience. If a JD requirement is unsupported, do not present it as candidate experience. Return concise, complete data.",
       },
       {
         role: "user",
@@ -179,13 +208,13 @@ export async function tailor(profile: any, jd: string) {
           "\n\nJOB ANALYSIS:\n" +
           JSON.stringify(a) +
           "\n\nONLINE RESEARCH:\n" +
-          JSON.stringify(research.results || []).slice(0, 12000) +
-          "\n\nORIGINAL JD:\n" +
+          researchText +
+          "\n\nORIGINAL JOB DESCRIPTION:\n" +
           jd,
       },
     ],
     outputSchema,
   );
 
-  return { analysis: a, research, ...tailored };
+  return { analysis: a, research, ...normalizeOutput(tailored, profile) };
 }
