@@ -1,1 +1,39 @@
-import{NextResponse}from"next/server";import{currentUser}from"@/lib/auth";import{db}from"@/lib/db";import{makeResumeDoc,makeCoverDoc}from"@/lib/docx";export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){const u=await currentUser();if(!u)return NextResponse.json({error:"Unauthorized"},{status:401});const{id}=await params;const job=await db.job.findFirst({where:{id,userId:u.id,status:"COMPLETED"},include:{user:{include:{profile:true}}});if(!job)return NextResponse.json({error:"Job not found"},{status:404});const profile=job.user.profile?{...job.user.profile,user:job.user}:null;if(!profile)return NextResponse.json({error:"Profile missing"},{status:400});const type=new URL(req.url).searchParams.get("type")||"resume";const data:any=job.tailoredResume;const buf=type==="cover"?await makeCoverDoc(profile,job.coverLetter||"",job):await makeResumeDoc(profile,data);const filename=type==="cover"?"cover-letter":"tailored-resume";return new Response(buf as BodyInit,{headers:{"Content-Type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","Content-Disposition":'attachment; filename="'+filename+'-'+(job.company||"job")+'.docx"'}});}
+import { NextResponse } from "next/server";
+import { currentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { makeResumeDoc, makeCoverDoc } from "@/lib/docx";
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const u = await currentUser();
+  if (!u) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const job = await db.job.findFirst({
+    where: { id, userId: u.id, status: "COMPLETED" },
+    include: { user: { include: { profile: true } } },
+  });
+
+  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  const profile = job.user.profile ? { ...job.user.profile, user: job.user } : null;
+  if (!profile) return NextResponse.json({ error: "Profile missing" }, { status: 400 });
+
+  const type = new URL(req.url).searchParams.get("type") || "resume";
+  const data: any = job.tailoredResume;
+  const buf =
+    type === "cover"
+      ? await makeCoverDoc(profile, job.coverLetter || "", job)
+      : await makeResumeDoc(profile, data);
+
+  const filename = type === "cover" ? "cover-letter" : "tailored-resume";
+
+  return new Response(buf as BodyInit, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": `attachment; filename="${filename}-${job.company || "job"}.docx"`,
+    },
+  });
+}
