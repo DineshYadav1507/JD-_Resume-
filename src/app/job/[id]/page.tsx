@@ -1,6 +1,141 @@
-import{currentUser}from"@/lib/auth";import{db}from"@/lib/db";import{notFound,redirect}from"next/navigation";
-function score(a:any,r:any){const jd=new Set((a?.atsSkills||[]).map((x:string)=>x.toLowerCase()));const skills=(r?.skills||[]).map((x:string)=>x.toLowerCase());const matched=[...jd].filter((x:string)=>skills.some((s:string)=>s.includes(x)||x.includes(s)));return{matched,score:jd.size?Math.round(matched.length/jd.size*100):0}}
-export default async function JobResult({params}:{params:Promise<{id:string}>}){const u=await currentUser();if(!u)redirect("/login");const{id}=await params;const j=await db.job.findFirst({where:{id,userId:u.id,status:"COMPLETED"}});if(!j)notFound();const a:any=j.analysis;const t:any=j.tailoredResume;const s=score(a,t);
-return <main className="shell"><nav className="nav"><div><div className="brand">JD Resume AI</div><div className="muted">{j.title||"Tailored application"} · {j.company||"Company"}</div></div><a className="btn alt" href="/dashboard">New Application</a></nav>
-<div className="grid"><section className="card"><h2>ATS Analysis</h2><div className="stat"><strong>{s.score}%</strong><span className="muted">skill coverage</span></div><h3>Matched keywords</h3><div>{s.matched.map((x:string)=><span className="pill" key={x}>{x}</span>)}</div><h3>JD requirements</h3><div>{(a?.atsSkills||[]).map((x:string)=><span className="pill" key={x}>{x}</span>)}</div><h3>Potential gaps</h3>{a?.missingSkills?.length?<ul>{a.missingSkills.map((x:string)=><li key={x}>{x}</li>)}</ul>:<p className="success">No major unsupported requirements identified.</p>}</section>
-<section className="card"><h2>Generated Documents</h2><h3>Resume Summary</h3><p>{t?.summary}</p><h3>Core Skills</h3><div>{(t?.skills||[]).map((x:string)=><span className="pill" key={x}>{x}</span>)}</div><p><a className="btn" href={"/api/jobs/"+j.id+"/download?type=resume"}>Download Resume DOCX</a></p><p><a className="btn alt" href={"/api/jobs/"+j.id+"/download?type=cover"}>Download Cover Letter DOCX</a></p></section></div></main>}
+import { currentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { notFound, redirect } from "next/navigation";
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
+}
+
+function score(a: any, r: any) {
+  const jdSkills = toStringArray(a?.atsSkills).map((x) => x.toLowerCase());
+  const resumeSkills = toStringArray(r?.skills).map((x) => x.toLowerCase());
+
+  const jd = new Set(jdSkills);
+  const matched = [...jd].filter((x) =>
+    resumeSkills.some((s) => s.includes(x) || x.includes(s)),
+  );
+
+  return {
+    matched,
+    score: jd.size ? Math.round((matched.length / jd.size) * 100) : 0,
+  };
+}
+
+export default async function JobResult({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const u = await currentUser();
+  if (!u) redirect("/login");
+
+  const { id } = await params;
+
+  const j = await db.job.findFirst({
+    where: {
+      id,
+      userId: u.id,
+      status: "COMPLETED",
+    },
+  });
+
+  if (!j) notFound();
+
+  const a: any = j.analysis;
+  const t: any = j.tailoredResume;
+  const s = score(a, t);
+  const atsSkills = toStringArray(a?.atsSkills);
+  const missingSkills = toStringArray(a?.missingSkills);
+  const tailoredSkills = toStringArray(t?.skills);
+
+  return (
+    <main className="shell">
+      <nav className="nav">
+        <div>
+          <div className="brand">JD Resume AI</div>
+          <div className="muted">
+            {j.title || "Tailored application"} · {j.company || "Company"}
+          </div>
+        </div>
+        <a className="btn alt" href="/dashboard">
+          New Application
+        </a>
+      </nav>
+
+      <div className="grid">
+        <section className="card">
+          <h2>ATS Analysis</h2>
+          <div className="stat">
+            <strong>{s.score}%</strong>
+            <span className="muted">skill coverage</span>
+          </div>
+
+          <h3>Matched keywords</h3>
+          <div>
+            {s.matched.map((x) => (
+              <span className="pill" key={x}>
+                {x}
+              </span>
+            ))}
+          </div>
+
+          <h3>JD requirements</h3>
+          <div>
+            {atsSkills.map((x) => (
+              <span className="pill" key={x}>
+                {x}
+              </span>
+            ))}
+          </div>
+
+          <h3>Potential gaps</h3>
+          {missingSkills.length ? (
+            <ul>
+              {missingSkills.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="success">
+              No major unsupported requirements identified.
+            </p>
+          )}
+        </section>
+
+        <section className="card">
+          <h2>Generated Documents</h2>
+
+          <h3>Resume Summary</h3>
+          <p>{t?.summary}</p>
+
+          <h3>Core Skills</h3>
+          <div>
+            {tailoredSkills.map((x) => (
+              <span className="pill" key={x}>
+                {x}
+              </span>
+            ))}
+          </div>
+
+          <p>
+            <a
+              className="btn"
+              href={"/api/jobs/" + j.id + "/download?type=resume"}
+            >
+              Download Resume DOCX
+            </a>
+          </p>
+
+          <p>
+            <a
+              className="btn alt"
+              href={"/api/jobs/" + j.id + "/download?type=cover"}
+            >
+              Download Cover Letter DOCX
+            </a>
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
