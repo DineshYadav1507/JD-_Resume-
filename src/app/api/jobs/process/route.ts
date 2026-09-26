@@ -5,7 +5,7 @@ import { tailor } from "@/lib/engine";
 export const maxDuration = 300;
 
 function authorized(req: Request) {
-  const expected = process.env.GENERATION_WORKER_SECRET;
+  const expected = process.env.GENERATION_WORKER_SECRET || process.env.JWT_SECRET;
   const supplied = req.headers.get("x-generation-worker-secret");
   return Boolean(expected && supplied && supplied === expected);
 }
