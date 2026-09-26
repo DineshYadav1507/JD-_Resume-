@@ -121,8 +121,8 @@ function normalizeOutput(raw: any, profile: any) {
 
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
-  const compactJd = jd.trim().slice(0, 6000);
-  const profileText = compactProfile(profile).slice(0, 6000);
+  const compactJd = jd.trim().slice(0, 5000);
+  const profileText = compactProfile(profile).slice(0, 5000);
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
   const controller = new AbortController();
@@ -152,7 +152,7 @@ export async function tailor(profile: any, jd: string) {
         options: {
           temperature: 0.1,
           num_ctx: 4096,
-          num_predict: 1200,
+          num_predict: 1000,
         },
         keep_alive: "10m",
       }),
