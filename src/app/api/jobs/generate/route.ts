@@ -6,6 +6,49 @@ import { z } from "zod";
 
 export const maxDuration = 300;
 
+async function runGeneration(jobId: string, user: any, profile: any, description: string) {
+  try {
+    const out = await tailor({ ...profile, user }, description);
+
+    await db.$transaction(async (tx) => {
+      const debit = await tx.user.updateMany({
+        where: { id: user.id, credits: { gte: 1 } },
+        data: { credits: { decrement: 1 } },
+      });
+
+      if (debit.count !== 1) throw new Error("No credits available.");
+
+      await tx.job.update({
+        where: { id: jobId },
+        data: {
+          title: out.analysis.title,
+          company: out.analysis.company,
+          location: out.analysis.location,
+          research: out.research,
+          analysis: out.analysis,
+          tailoredResume: out,
+          coverLetter: out.coverLetter,
+          status: "COMPLETED",
+        },
+      });
+
+      await tx.creditLedger.create({
+        data: {
+          userId: user.id,
+          amount: -1,
+          reason: "Resume + cover letter generation",
+        },
+      });
+    });
+  } catch (e: any) {
+    console.error("[JD Resume AI] generation failed", jobId, e);
+    await db.job.update({
+      where: { id: jobId },
+      data: { status: "FAILED" },
+    }).catch(() => undefined);
+  }
+}
+
 export async function POST(req: Request) {
   const u = await currentUser();
   if (!u) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,51 +70,11 @@ export async function POST(req: Request) {
       data: { userId: u.id, description, status: "GENERATING" },
     });
 
-    try {
-      const out = await tailor({ ...u.profile, user: u }, description);
+    // Do not keep the browser request open while the local Ollama model works.
+    // The job page polls by refreshing until the database status becomes COMPLETED/FAILED.
+    void runGeneration(job.id, u, u.profile, description);
 
-      await db.$transaction(async (tx) => {
-        const debit = await tx.user.updateMany({
-          where: { id: u.id, credits: { gte: 1 } },
-          data: { credits: { decrement: 1 } },
-        });
-
-        if (debit.count !== 1) throw new Error("No credits available.");
-
-        await tx.job.update({
-          where: { id: job.id },
-          data: {
-            title: out.analysis.title,
-            company: out.analysis.company,
-            location: out.analysis.location,
-            research: out.research,
-            analysis: out.analysis,
-            tailoredResume: out,
-            coverLetter: out.coverLetter,
-            status: "COMPLETED",
-          },
-        });
-
-        await tx.creditLedger.create({
-          data: {
-            userId: u.id,
-            amount: -1,
-            reason: "Resume + cover letter generation",
-          },
-        });
-      });
-
-      return NextResponse.json({ jobId: job.id });
-    } catch (e: any) {
-      await db.job.update({
-        where: { id: job.id },
-        data: { status: "FAILED" },
-      }).catch(() => undefined);
-
-      return NextResponse.json({
-        error: e?.message || "Generation failed",
-      }, { status: 500 });
-    }
+    return NextResponse.json({ jobId: job.id, status: "GENERATING" });
   } catch (e: any) {
     return NextResponse.json({
       error: e?.message || "Invalid request",
