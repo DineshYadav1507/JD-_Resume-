@@ -1,5 +1,3 @@
-import { researchJobs } from "./search";
-
 const profileText = (p: any) =>
   JSON.stringify(
     {
@@ -18,7 +16,7 @@ const profileText = (p: any) =>
     },
     null,
     2,
-  ).slice(0, 14000);
+  ).slice(0, 8000);
 
 const outputSchema = {
   type: "object",
@@ -122,12 +120,12 @@ function normalizeOutput(raw: any, profile: any) {
 }
 
 export async function tailor(profile: any, jd: string) {
-  const model = process.env.OLLAMA_MODEL || "qwen2.5:3b";
-  const compactJd = jd.trim().slice(0, 12000);
+  const model = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
+  const compactJd = jd.trim().slice(0, 8000);
 
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 300000);
+  const timer = setTimeout(() => controller.abort(), 180000);
 
   try {
     const res = await fetch(base + "/api/chat", {
@@ -152,8 +150,8 @@ export async function tailor(profile: any, jd: string) {
         format: outputSchema,
         options: {
           temperature: 0.1,
-          num_ctx: 4096,
-          num_predict: 2200
+          num_ctx: 3072,
+          num_predict: 1400
         },
         keep_alive: "10m"
       }),
@@ -196,7 +194,7 @@ export async function tailor(profile: any, jd: string) {
     };
   } catch (error: any) {
     if (error?.name === "AbortError") {
-      throw new Error("AI generation timed out after 5 minutes. On this 1-core VPS the local model is too slow for this request.");
+      throw new Error("AI generation timed out after 3 minutes. The local model did not finish within the VPS processing limit.");
     }
     throw error;
   } finally {
