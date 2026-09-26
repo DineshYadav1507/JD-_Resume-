@@ -25,10 +25,10 @@ function loadEnv() {
 loadEnv();
 
 const port = process.env.PORT || "3000";
-const secret = process.env.GENERATION_WORKER_SECRET;
+const secret = process.env.GENERATION_WORKER_SECRET || process.env.JWT_SECRET;
 
 if (!secret) {
-  console.error("[JD Resume AI worker] GENERATION_WORKER_SECRET is missing");
+  console.error("[JD Resume AI worker] worker secret is missing (set JWT_SECRET or GENERATION_WORKER_SECRET)");
   process.exit(1);
 }
 
