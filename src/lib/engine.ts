@@ -20,7 +20,7 @@ const profileText = (p: any) =>
     2,
   ).slice(0, 14000);
 
-const analysisSchema = {
+const outputSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -30,25 +30,7 @@ const analysisSchema = {
     seniority: { type: "string" },
     keywords: { type: "array", items: { type: "string" } },
     atsSkills: { type: "array", items: { type: "string" } },
-    responsibilities: { type: "array", items: { type: "string" } },
     missingSkills: { type: "array", items: { type: "string" } },
-  },
-  required: [
-    "title",
-    "company",
-    "location",
-    "seniority",
-    "keywords",
-    "atsSkills",
-    "responsibilities",
-    "missingSkills",
-  ],
-};
-
-const outputSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
     summary: { type: "string" },
     skills: { type: "array", items: { type: "string" } },
     experience: {
@@ -64,10 +46,10 @@ const outputSchema = {
           endDate: { type: "string" },
           current: { type: "boolean" },
           dates: { type: "string" },
-          bullets: { type: "array", items: { type: "string" } },
+          bullets: { type: "array", items: { type: "string" } }
         },
-        required: ["company", "title", "location", "startDate", "endDate", "current", "dates", "bullets"],
-      },
+        required: ["company","title","location","startDate","endDate","current","dates","bullets"]
+      }
     },
     projects: {
       type: "array",
@@ -77,16 +59,16 @@ const outputSchema = {
         properties: {
           name: { type: "string" },
           description: { type: "string" },
-          technologies: { type: "array", items: { type: "string" } },
+          technologies: { type: "array", items: { type: "string" } }
         },
-        required: ["name", "description", "technologies"],
-      },
+        required: ["name","description","technologies"]
+      }
     },
     certifications: { type: "array", items: { type: "string" } },
     education: { type: "array", items: { type: "string" } },
-    coverLetter: { type: "string" },
+    coverLetter: { type: "string" }
   },
-  required: ["summary", "skills", "experience", "projects", "certifications", "education", "coverLetter"],
+  required: ["title","company","location","seniority","keywords","atsSkills","missingSkills","summary","skills","experience","projects","certifications","education","coverLetter"]
 };
 
 function cleanList(value: any, max = 60): string[] {
@@ -141,100 +123,83 @@ function normalizeOutput(raw: any, profile: any) {
 
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:3b";
-  const compactJd = jd.trim().slice(0, 18000);
+  const compactJd = jd.trim().slice(0, 12000);
 
-  async function structured(messages: any[], schema: any) {
-    const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
+  const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 300000);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 240000);
-    let res: Response;
-    try {
-      res = await fetch(base + "/api/chat", {
+  try {
+    const res = await fetch(base + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        messages,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert US ATS resume writer. Produce one complete tailored resume and cover letter from the master profile and job description. Aggressively optimize wording, ordering, keyword alignment, and bullet phrasing, but NEVER invent employers, dates, degrees, certifications, projects, metrics, technologies, responsibilities, achievements, or years of experience. Employment company, title, location, start date, end date and current status MUST come from the master profile. Unsupported JD requirements belong in missingSkills. Keep output concise enough for a 2-page resume."
+          },
+          {
+            role: "user",
+            content:
+              "MASTER PROFILE:\n" + profileText(profile) +
+              "\n\nJOB DESCRIPTION:\n" + compactJd
+          }
+        ],
         stream: false,
-        format: schema,
-        keep_alive: "10m",
-        options: { temperature: 0.15, num_ctx: 4096, num_predict: 2800 },
+        format: outputSchema,
+        options: {
+          temperature: 0.1,
+          num_ctx: 4096,
+          num_predict: 2200
+        },
+        keep_alive: "10m"
       }),
-      signal: controller.signal,
-      });
-    } catch (error: any) {
-      if (error?.name === "AbortError") throw new Error("AI generation timed out after 240 seconds. The VPS CPU/model is taking too long.");
-      throw new Error(`Could not connect to Ollama: ${error?.message || "connection failed"}`);
-    } finally {
-      clearTimeout(timer);
-    }
+      signal: controller.signal
+    });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Ollama request failed (${res.status})${body ? `: ${body.slice(0, 500)}` : ""}`);
+      throw new Error("Ollama request failed (" + res.status + ")" + (body ? ": " + body.slice(0, 500) : ""));
     }
 
     const data: any = await res.json();
     const content = data.message?.content;
     if (!content) throw new Error("Ollama returned an empty response.");
 
+    let raw: any;
     try {
-      return JSON.parse(content);
+      raw = JSON.parse(content);
     } catch {
-      throw new Error("Ollama returned invalid JSON for the requested schema.");
+      throw new Error("Ollama returned invalid JSON.");
     }
+
+    const analysis = {
+      title: String(raw.title || ""),
+      company: String(raw.company || ""),
+      location: String(raw.location || ""),
+      seniority: String(raw.seniority || ""),
+      keywords: cleanList(raw.keywords, 40),
+      atsSkills: cleanList(raw.atsSkills, 50),
+      responsibilities: [],
+      missingSkills: cleanList(raw.missingSkills, 50)
+    };
+
+    const normalized = normalizeOutput(raw, profile);
+
+    return {
+      analysis,
+      research: { source: "disabled", results: [] },
+      ...normalized
+    };
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("AI generation timed out after 5 minutes. On this 1-core VPS the local model is too slow for this request.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-
-  const a = await structured(
-    [
-      {
-        role: "system",
-        content:
-          "Analyze the job description. Extract the job title, company, location, seniority, ATS keywords, skills, responsibilities, and unsupported/missing requirements. Return concise structured data. Do not invent candidate facts.",
-      },
-      {
-        role: "user",
-        content: "MASTER PROFILE:\n" + profileText(profile) + "\n\nJOB DESCRIPTION:\n" + compactJd,
-      },
-    ],
-    analysisSchema,
-  );
-
-  let research: any = { source: "disabled", results: [] };
-  try {
-    research = await researchJobs(
-      [a.title, a.company, ...(a.atsSkills || []).slice(0, 5)].filter(Boolean).join(" "),
-      a.location || profile.location,
-    );
-  } catch {
-    research = { source: "unavailable", results: [] };
-  }
-
-  const researchText = JSON.stringify(research.results || []).slice(0, 4000);
-
-  const tailored = await structured(
-    [
-      {
-        role: "system",
-        content:
-          "Create a highly JD-tailored ATS-friendly US resume and hiring-manager cover letter. Reorder and rewrite supported experience aggressively. Use the job description's terminology where it truthfully maps to the master profile. Preserve candidate facts: never invent employers, dates, degrees, certifications, projects, metrics, technologies, responsibilities, achievements, or years of experience. If a JD requirement is unsupported, do not present it as candidate experience. Return concise, complete data.",
-      },
-      {
-        role: "user",
-        content:
-          "MASTER PROFILE:\n" +
-          profileText(profile) +
-          "\n\nJOB ANALYSIS:\n" +
-          JSON.stringify(a) +
-          "\n\nONLINE RESEARCH:\n" +
-          researchText +
-          "\n\nORIGINAL JOB DESCRIPTION:\n" +
-          compactJd,
-      },
-    ],
-    outputSchema,
-  );
-
-  return { analysis: a, research, ...normalizeOutput(tailored, profile) };
 }
