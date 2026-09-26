@@ -18,7 +18,7 @@ const profileText = (p: any) =>
     },
     null,
     2,
-  );
+  ).slice(0, 14000);
 
 const analysisSchema = {
   type: "object",
@@ -141,11 +141,16 @@ function normalizeOutput(raw: any, profile: any) {
 
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:3b";
+  const compactJd = jd.trim().slice(0, 18000);
 
   async function structured(messages: any[], schema: any) {
     const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
-    const res = await fetch(base + "/api/chat", {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 240000);
+    let res: Response;
+    try {
+      res = await fetch(base + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -153,9 +158,17 @@ export async function tailor(profile: any, jd: string) {
         messages,
         stream: false,
         format: schema,
-        options: { temperature: 0.2, num_ctx: 8192 },
+        keep_alive: "10m",
+        options: { temperature: 0.15, num_ctx: 4096, num_predict: 2800 },
       }),
-    });
+      signal: controller.signal,
+      });
+    } catch (error: any) {
+      if (error?.name === "AbortError") throw new Error("AI generation timed out after 240 seconds. The VPS CPU/model is taking too long.");
+      throw new Error(`Could not connect to Ollama: ${error?.message || "connection failed"}`);
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -182,7 +195,7 @@ export async function tailor(profile: any, jd: string) {
       },
       {
         role: "user",
-        content: "MASTER PROFILE:\n" + profileText(profile) + "\n\nJOB DESCRIPTION:\n" + jd,
+        content: "MASTER PROFILE:\n" + profileText(profile) + "\n\nJOB DESCRIPTION:\n" + compactJd,
       },
     ],
     analysisSchema,
@@ -198,7 +211,7 @@ export async function tailor(profile: any, jd: string) {
     research = { source: "unavailable", results: [] };
   }
 
-  const researchText = JSON.stringify(research.results || []).slice(0, 8000);
+  const researchText = JSON.stringify(research.results || []).slice(0, 4000);
 
   const tailored = await structured(
     [
@@ -217,7 +230,7 @@ export async function tailor(profile: any, jd: string) {
           "\n\nONLINE RESEARCH:\n" +
           researchText +
           "\n\nORIGINAL JOB DESCRIPTION:\n" +
-          jd,
+          compactJd,
       },
     ],
     outputSchema,
