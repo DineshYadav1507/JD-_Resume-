@@ -42,22 +42,16 @@ export default async function JobResult({
 
   if (j.status === "GENERATING") {
     return (
-      <html>
-        <head>
-          <meta httpEquiv="refresh" content="5" />
-        </head>
-        <body>
-          <main className="shell">
-            <section className="card hero">
-              <h1>Generating your tailored application…</h1>
-              <p className="muted">
-                Ollama is analyzing the JD and tailoring your resume. This page checks the job status automatically.
-              </p>
-              <p className="muted">Please keep this tab open. You can wait here; the original Generate request is no longer blocking the browser.</p>
-            </section>
-          </main>
-        </body>
-      </html>
+      <main className="shell">
+        <meta httpEquiv="refresh" content="5" />
+        <section className="card hero">
+          <h1>Generating your tailored application…</h1>
+          <p className="muted">
+            Ollama is analyzing the JD and tailoring your resume. This page checks the job status automatically.
+          </p>
+          <p className="muted">Please keep this tab open. The Generate request is no longer blocking the browser.</p>
+        </section>
+      </main>
     );
   }
 
