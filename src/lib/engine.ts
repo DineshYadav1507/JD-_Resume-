@@ -122,7 +122,9 @@ function normalizeOutput(raw: any, profile: any) {
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
   const compactJd = jd.trim().slice(0, 5000);
-  const profileText = compactProfile(profile).slice(0, 5000);
+  import { analyzeJob } from "@/lib/matcher";
+
+const profileText = compactProfile(profile).slice(0, 5000);
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
   const controller = new AbortController();
@@ -143,7 +145,9 @@ export async function tailor(profile: any, jd: string) {
           {
             role: "user",
             content:
-              "MASTER PROFILE:\n" + profileText +
+              "DETERMINISTIC PRE-FLIGHT MATCH (do not override with invented facts):\n" +
+              JSON.stringify(preflight) +
+              "\n\nMASTER PROFILE:\n" + profileText +
               "\n\nJOB DESCRIPTION:\n" + compactJd,
           },
         ],
@@ -181,9 +185,9 @@ export async function tailor(profile: any, jd: string) {
       location: String(raw.location || ""),
       seniority: String(raw.seniority || ""),
       keywords: cleanList(raw.atsSkills, 30),
-      atsSkills: cleanList(raw.atsSkills, 30),
+      atsSkills: preflight.atsSkills,
       responsibilities: [],
-      missingSkills: cleanList(raw.missingSkills, 30),
+      missingSkills: preflight.missingSkills,
     };
 
     const normalized = normalizeOutput(raw, profile);
@@ -196,6 +200,7 @@ export async function tailor(profile: any, jd: string) {
       analysis,
       research: { source: "disabled", results: [] },
       ...normalized,
+      deterministic: preflight,
     };
   } catch (error: any) {
     if (error?.name === "AbortError") {
