@@ -15,6 +15,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const staleBefore = new Date(Date.now() - 4 * 60 * 1000);
+  await db.job.updateMany({
+    where: { status: "GENERATING", updatedAt: { lt: staleBefore } },
+    data: { status: "FAILED" },
+  });
+
   const job = await db.job.findFirst({
     where: { status: "GENERATING" },
     orderBy: { createdAt: "asc" },
