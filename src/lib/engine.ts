@@ -1,3 +1,5 @@
+import { analyzeJob } from "@/lib/matcher";
+
 function compactProfile(p: any) {
   const experiences = Array.isArray(p.experiences) ? p.experiences : [];
   const projects = Array.isArray(p.projects) ? p.projects : [];
@@ -122,9 +124,8 @@ function normalizeOutput(raw: any, profile: any) {
 export async function tailor(profile: any, jd: string) {
   const model = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
   const compactJd = jd.trim().slice(0, 5000);
-  import { analyzeJob } from "@/lib/matcher";
-
-const profileText = compactProfile(profile).slice(0, 5000);
+  const profileText = compactProfile(profile).slice(0, 5000);
+  const preflight = analyzeJob(profile, compactJd);
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
   const controller = new AbortController();
